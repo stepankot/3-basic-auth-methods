@@ -45,7 +45,7 @@ def validate_user(username: str = Form(), password: str = Form()):
         raise unauthed_exc
     
     if not utils.validate_password(
-        password=password, 
+        password, 
         hashed_password=user.password):
 
         raise unauthed_exc

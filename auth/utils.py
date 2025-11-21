@@ -8,11 +8,11 @@ from datetime import datetime
 def encode_jwt(
     payload: dict, 
     alghoritm: str = settings.auth_jwt.algorithm,
+    private_key: str = settings.auth_jwt.private_key_path.read_text(),  #Секретный ключ
     expire_timedelta: timedelta | None = None,
     expire_minutes: int = settings.auth_jwt.access_token_expire_minutes,
 ):
     #Добавим в пейлоад время жизни токена и время регистрации токена
-    private_key: str = settings.auth_jwt.private_key_path.read_text()  #Секретный ключ
     to_encode = payload.copy()
     now = datetime.utcnow()
 
@@ -28,10 +28,10 @@ def encode_jwt(
 
 def decode_jwt(
     token: str | bytes,  
+    public_key: str = settings.auth_jwt.public_key_path.read_text(),
     alghoritm: str = settings.auth_jwt.algorithm
     ):
     #Проверяем, что токен существует
-    public_key: str = settings.auth_jwt.public_key_path.read_text()
     if token:
         try:
             decoded = jwt.decode(token, public_key, alghoritms=[alghoritm]) #Декодируем токен

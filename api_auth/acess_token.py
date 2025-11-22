@@ -1,11 +1,12 @@
 from typing import Annotated
 import secrets # Специальный модуль для проверки совпадений (паролей)
+import jwt
 
 from pydantic import BaseModel
 from schemas.user import UserSchema
 
 
-from fastapi import APIRouter, Depends, HTTPException, status, Cookie, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Cookie, Form, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import auth.utils as utils
 
@@ -58,11 +59,29 @@ class TokenInfo(BaseModel):
     acces_token: str
     token_type: str
 
-@router.post("/login", response_model=TokenInfo)
-async def auth_user_issue_jwt(user: UserSchema = Depends(validate_user)):
+COOKIE_SESSION_ID_KEY = "web-app-jwt-id"
+
+@router.post("/login")
+async def auth_user_issue_jwt(response: Response, user: UserSchema = Depends(validate_user)):
     jwt_payload = {"usename": user.username, 
                    "email": user.email}
     
     access_token = utils.encode_jwt(payload=jwt_payload)
 
-    return TokenInfo(acces_token=access_token, token_type="bearer")
+    response.set_cookie(COOKIE_SESSION_ID_KEY, value=access_token)
+
+    return {"message":"loggin in! Cookie was setted!"}
+
+@router.get("/users_token")
+async def ckeck_user_issue_jwt(acess_token: str = Cookie(alias=COOKIE_SESSION_ID_KEY)):
+
+    """Возвращаем декодированный payload токена, взятого из cookie"""
+
+    payload = utils.decode_jwt(token=acess_token)
+    
+    if payload:
+        return payload
+    else:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, 
+                            detail="Invalid username or password",
+                            headers={"WWW-Authenticate": "Basic"})

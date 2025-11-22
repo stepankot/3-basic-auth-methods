@@ -34,7 +34,8 @@ def decode_jwt(
     #Проверяем, что токен существует
     if token:
         try:
-            decoded = jwt.decode(token, public_key, alghoritms=[alghoritm]) #Декодируем токен
+            #Декодируем токен
+            decoded = jwt.decode(token, public_key, algorithms=[alghoritm])
             return decoded
         except jwt.DecodeError:
             return None

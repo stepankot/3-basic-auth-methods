@@ -2,6 +2,8 @@ from typing import Annotated
 import secrets # Специальный модуль для проверки совпадений (паролей)
 import jwt
 
+from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
+
 from pydantic import BaseModel
 from schemas.user import UserSchema
 
@@ -63,7 +65,7 @@ COOKIE_SESSION_ID_KEY = "web-app-jwt-id"
 
 @router.post("/login")
 async def auth_user_issue_jwt(response: Response, user: UserSchema = Depends(validate_user)):
-    jwt_payload = {"usename": user.username, 
+    jwt_payload = {"username": user.username, 
                    "email": user.email}
     
     access_token = utils.encode_jwt(payload=jwt_payload)
@@ -85,3 +87,36 @@ async def ckeck_user_issue_jwt(acess_token: str = Cookie(alias=COOKIE_SESSION_ID
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, 
                             detail="Invalid username or password",
                             headers={"WWW-Authenticate": "Basic"})
+    
+
+#Забираем токен из cookie
+def get_payload_user_token(token: str = Cookie(alias=COOKIE_SESSION_ID_KEY)):
+    
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token is missing",
+        )
+
+    try:
+        payload = utils.decode_jwt(token=token)
+        return payload
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired, (try to refresh)")
+
+def get_current_auth_user(payload: dict = Depends(get_payload_user_token)):
+    if payload:
+        username = payload.get("username")
+        user = user_db.get(username)
+        return user
+    else:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token not found missing")
+
+
+@router.get("/users/me")
+async def auth_user_check_self_info(user: UserSchema = Depends(get_current_auth_user)):
+    return {
+        "user": user.username,
+        "email": user.email
+    }

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from schemas.user import UserSchema
 
 
-from fastapi import APIRouter, Depends, HTTPException, status, Cookie, Form, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Cookie, Form, Response, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import auth.utils as utils
 from config import settings
@@ -62,6 +62,7 @@ class TokenInfo(BaseModel):
     token_type: str = "bearer"
 
 COOKIE_SESSION_ID_KEY = "web-app-jwt-id"
+COOKIE_REFRESH_TOKEN_KEY = "web-app-jwt-refresh-id"
 
 TOKEN_TYPE_FIELD = "type"
 ACCESS_TOKEN_TYPE = "access"
@@ -112,6 +113,7 @@ async def auth_user_issue_jwt(response: Response, user: UserSchema = Depends(val
     refresh_token = create_refresh_token(user)
 
     response.set_cookie(COOKIE_SESSION_ID_KEY, value=access_token)
+    response.set_cookie(COOKIE_REFRESH_TOKEN_KEY, value=refresh_token)
 
     return TokenInfo(acces_token=access_token, refresh_token=refresh_token)
 
@@ -129,6 +131,30 @@ async def ckeck_user_issue_jwt(acess_token: str = Cookie(alias=COOKIE_SESSION_ID
                             detail="Invalid username or password",
                             headers={"WWW-Authenticate": "Basic"})
     
+def get_current_auth_user_for_refresh(refresh: str = Cookie(alias=COOKIE_REFRESH_TOKEN_KEY)):
+
+    if not refresh:
+        raise HTTPException(status_code=401, detail="Refresh token is missing")
+    
+    try: 
+        refresh_payload = utils.decode_jwt(refresh)
+        if refresh_payload:
+            username = refresh_payload.get("sub")
+            user = user_db.get(username)
+            if not user:
+                raise HTTPException(status_code=401, detail="user not found")
+            return user
+        raise HTTPException(status_code=401, detail="user payload no found")
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired, please login")
+
+@router.post("/refresh_token")
+async def refresh_token(response: Response, user: UserSchema = Depends(get_current_auth_user_for_refresh)):
+    
+    new_access = create_access_token(user)
+    response.set_cookie(COOKIE_SESSION_ID_KEY, value =new_access)
+    return new_access
+
 
 #Забираем токен из cookie
 def get_payload_user_token(token: str = Cookie(alias=COOKIE_SESSION_ID_KEY)):

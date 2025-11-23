@@ -1,8 +1,6 @@
 from typing import Annotated
-import secrets # Специальный модуль для проверки совпадений (паролей)
-import jwt
-
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
+from datetime import timedelta
 
 from pydantic import BaseModel
 from schemas.user import UserSchema
@@ -11,6 +9,7 @@ from schemas.user import UserSchema
 from fastapi import APIRouter, Depends, HTTPException, status, Cookie, Form, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import auth.utils as utils
+from config import settings
 
 #Реализуем выпуск и проверку токена через cookie
 #pyjwt[crypto]
@@ -59,20 +58,62 @@ def validate_user(username: str = Form(), password: str = Form()):
 
 class TokenInfo(BaseModel):
     acces_token: str
-    token_type: str
+    refresh_token: str #Добавляем refresh токен
+    token_type: str = "bearer"
 
 COOKIE_SESSION_ID_KEY = "web-app-jwt-id"
 
-@router.post("/login")
-async def auth_user_issue_jwt(response: Response, user: UserSchema = Depends(validate_user)):
-    jwt_payload = {"username": user.username, 
-                   "email": user.email}
+TOKEN_TYPE_FIELD = "type"
+ACCESS_TOKEN_TYPE = "access"
+REFRESH_TOKEN_TYPE = "refresh"
+
+def create_jwt(token_type: str, token_data: dict, 
+               expire_minutes: int = settings.auth_jwt.access_token_expire_minutes,
+               expire_timedelta: timedelta | None = None ) -> str:
+    #Нам нужно различать типы токена, refresh и access
+    #Для этого укажем в payload тип токена
+    jwt_payload = {TOKEN_TYPE_FIELD: token_type}
+    jwt_payload.update(token_data)
+    return utils.encode_jwt(
+        payload=jwt_payload,
+        expire_minutes=expire_minutes,
+        expire_timedelta=expire_timedelta
+        )
+
+#Создадим функцию для выпуска access токена
+def create_access_token(user: UserSchema):
+    if user:
+        jwt_payload = {"username": user.username,
+                       "email": user.email}
+        
+        return create_jwt(ACCESS_TOKEN_TYPE, 
+        jwt_payload, 
+        expire_minutes=settings.auth_jwt.access_token_expire_minutes
+        )
     
-    access_token = utils.encode_jwt(payload=jwt_payload)
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+def create_refresh_token(user: UserSchema):
+    if user:
+        jwt_payload = {"sub": user.username} #refresh токен нужен только для того, чтобы обновлять access токен
+        
+        return create_jwt(REFRESH_TOKEN_TYPE, 
+            jwt_payload, 
+            expire_timedelta=timedelta(days = settings.auth_jwt.refresh_token_expire_days)
+        )
+    
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+@router.post("/login", response_model=TokenInfo)
+async def auth_user_issue_jwt(response: Response, user: UserSchema = Depends(validate_user)):
+    #Переиспользуем нашу новую функцию для создания acces токена
+    #Создаем функцию, которая выпускает refresh токен
+    access_token = create_access_token(user)
+    refresh_token = create_refresh_token(user)
 
     response.set_cookie(COOKIE_SESSION_ID_KEY, value=access_token)
 
-    return {"message":"loggin in! Cookie was setted!"}
+    return TokenInfo(acces_token=access_token, refresh_token=refresh_token)
 
 @router.get("/users_token")
 async def ckeck_user_issue_jwt(acess_token: str = Cookie(alias=COOKIE_SESSION_ID_KEY)):

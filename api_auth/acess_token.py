@@ -141,6 +141,9 @@ def get_payload_user_token(token: str = Cookie(alias=COOKIE_SESSION_ID_KEY)):
 
     try:
         payload = utils.decode_jwt(token=token)
+        token_type = payload.get(TOKEN_TYPE_FIELD)
+        if token_type != ACCESS_TOKEN_TYPE:
+            raise HTTPException(status_code=401, detail=f"Invalid token type {token_type!r} when expected {ACCESS_TOKEN_TYPE}")
         return payload
     except ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired, (try to refresh)")
